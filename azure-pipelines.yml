@@ -1,82 +1,43 @@
-# ASP.NET Core
-# Build and test ASP.NET Core projects targeting .NET Core.
-# Add steps that run tests, create a NuGet package, deploy, and more:
-# https://docs.microsoft.com/azure/devops/pipelines/languages/dotnet-core
-
+# Build pipeline for publishing NPM (NodeJS) module to Azure Artifacts
+# Stage 'publish' publishes the NPM module to Azure Artifacts
+# Note: The current version is used as set in package.json is used. Make sure that you use a
+#       version which is not yet used, other the stage will fail.
+ 
 trigger:
-- develop
-- feature/*
-- master
-
-pool:
-  name: 'Demo'
-
+- none
+ 
+# Global variables for all stages
 variables:
-  buildConfiguration: 'Release'
-  dotNetFramework: 'net6.0'
-  repository: 'walmartpayment'
-  namespace: 'walmartdev'
-  k8sconnection: 'kubewalmartdev'
-  imagePullSecret: 'test'
-
+  vmImageNamePool: 'ubuntu-latest'
+ 
 stages:
-- stage: 'Build'
+# Prepare
+- stage: prepare
+  displayName: Build and test artifacts
   jobs:
-  - job: 'Build'
-    steps:
-      - task: Docker@2
-        inputs:
-          containerRegistry: 'ACRDocker'
-          repository: '$(repository)'
-          command: 'buildAndPush'
-          Dockerfile: '**/Dockerfile'
-          tags: |
-            latest
-            $(Build.BuildNumber)
-
-      - task: PublishPipelineArtifact@1
-        inputs:
-          artifactName: 'manifests'
-          path: 'manifests'
-
-- stage: 'Deploy'
-  displayName: 'Deployment to Dev'
-  jobs:
-  - deployment: Deploy
-    displayName: Deploy to AKS
+  - job: Build
+    displayName: Build artifacts
     pool:
-      name: 'Demo'   
-    environment: 'Dev'
-    strategy:
-      runOnce:
-        deploy:
-          steps:
-           - task: DownloadPipelineArtifact@2
-             displayName: 'Download Manifests'
-             inputs:
-                artifactName: 'manifests'
-                downloadPath: '$(System.ArtifactsDirectory)/manifests'
-
-           - task: KubernetesManifest@0
-             displayName: Create imagePullSecret
-             inputs:
-                kubernetesServiceConnection: $(k8sconnection)
-                action: createSecret
-                secretName: $(imagePullSecret)
-                namespace: $(namespace)
-                dockerRegistryEndpoint: 'ACRDocker'
-              
-           - task: KubernetesManifest@0
-             displayName: Deploy
-             inputs:
-              kubernetesServiceConnection: $(k8sconnection)
-              action: deploy
-              namespace: $(namespace)
-              manifests: |
-                $(System.ArtifactsDirectory)/manifests/deployment.yaml
-                $(System.ArtifactsDirectory)/manifests/Service.yaml
-                $(System.ArtifactsDirectory)/manifests/Ingress.yaml
-              imagePullSecrets: |
-                $(imagePullSecret)
-              arguments: '-n=walmartdev'
-  
+      vmImage: $(vmImageNamePool)
+    steps:
+      - task: NodeTool@0
+        inputs:
+          versionSpec: '12.x'
+        displayName: 'Install Node.js v12'
+ 
+      - script: |
+          npm install
+        displayName: 'Install NPM dependencies'
+ 
+# Publish
+- stage: publish
+  displayName: Publish to Azure Artifacts
+  jobs:
+  - job: publish
+    displayName: Publish NPM module
+    pool:
+      vmImage: $(vmImageNamePool)
+    steps:
+    - checkout: self
+      persistCredentials: true
+      clean: true
